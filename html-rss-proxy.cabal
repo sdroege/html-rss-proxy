@@ -1,0 +1,40 @@
+name:                html-rss-proxy
+version:             0.1.0.0
+synopsis:            HTML to RSS feed proxy
+homepage:            https://github.com/sdroege/html-rss-proxy
+license:             GPL-3
+license-file:        LICENSE
+author:              Sebastian Dröge
+maintainer:          slomo@coaxion.net
+copyright:           2016 Sebastian Dröge
+category:            Web
+build-type:          Simple
+cabal-version:       >=1.10
+
+executable html-rss-proxy
+  hs-source-dirs:      src
+  main-is:             Main.hs
+  other-modules:       Rss
+                     , ToVima
+                     , Types
+                     , Utils
+  ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
+  build-depends:       base
+                     , text
+                     , bytestring
+                     , data-default
+                     , exceptions
+                     , containers
+                     , transformers
+                     , scotty
+                     , conduit
+                     , http-conduit
+                     , xml-types
+                     , xml-conduit
+                     , xml-conduit-writer
+                     , html-conduit
+  default-language:    Haskell2010
+
+source-repository head
+  type:     git
+  location: https://github.com/sdroege/html-rss-proxy
