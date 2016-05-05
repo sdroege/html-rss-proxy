@@ -32,15 +32,20 @@ data ToVimaArticle = ToVimaArticle
     } deriving (Show)
 
 -- Parsing of HTML into Articles
-url, urlBase :: String
-url = "http://www.tovima.gr/ajax.aspx?m=Dol.ToVima.ExtenderModule.ModuleUserControl&controlname=/User_Controls/International/ArticleListInternational.ascx&data=page%3D1%26lang%3D1"
+urlBase :: String
 urlBase = "http://www.tovima.gr"
+
+url :: Int -> String
+url page = "http://www.tovima.gr/ajax.aspx?m=Dol.ToVima.ExtenderModule.ModuleUserControl&controlname=/User_Controls/International/ArticleListInternational.ascx&data=page%3D" ++ show page ++ "%26lang%3D1"
 
 getChannel :: (MonadIO m) => m Channel
 getChannel = do
-    req <- liftIO $ parseUrl url
-    articles <- liftIO $ httpSink req $ \_ ->
-        HTML.eventConduit =$= parseContainers =$= CL.map toArticle =$= CL.consume
+
+    articles <- fmap (deduplicateArticles . concat) $
+        forM [0, 1] $ \n -> do
+            req <- liftIO $ parseUrl (url n)
+            liftIO $ httpSink req $ \_ ->
+                HTML.eventConduit =$= parseContainers =$= CL.map toArticle =$= CL.consume
 
     return Channel { channelTitle = "Το Βήμα Online"
                    , channelLink = "http://www.tovima.gr/en"

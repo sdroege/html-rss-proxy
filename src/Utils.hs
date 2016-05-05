@@ -2,13 +2,17 @@
 
 module Utils
     ( tagNameWithAttrValue
+    , deduplicateArticles
     )
 where
+
+import Types
 
 import Control.Monad
 import Control.Monad.Catch
 
 import Data.Text (Text)
+import Data.List (nubBy)
 
 import Data.Conduit
 
@@ -22,4 +26,7 @@ tagNameWithAttrValue n a v p = fmap join $
         case i of
           Just v' | v == v' -> Just <$> p
           _                 -> XP.many XP.ignoreAllTreesContent *> pure Nothing
+
+deduplicateArticles :: [Article] -> [Article]
+deduplicateArticles = nubBy (\(Article _ l1 _) (Article _ l2 _) -> l1 == l2)
 
