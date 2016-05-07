@@ -15,6 +15,7 @@ import Data.Text (Text)
 import Data.List (nubBy)
 
 import Data.Conduit
+import Data.Function (on)
 
 import qualified Data.XML.Types as XT
 import qualified Text.XML.Stream.Parse as XP
@@ -28,5 +29,5 @@ tagNameWithAttrValue n a v p = fmap join $
           _                 -> XP.many XP.ignoreAllTreesContent *> pure Nothing
 
 deduplicateArticles :: [Article] -> [Article]
-deduplicateArticles = nubBy (\(Article _ l1 _) (Article _ l2 _) -> l1 == l2)
+deduplicateArticles = nubBy ((==) `on` articleLink)
 
