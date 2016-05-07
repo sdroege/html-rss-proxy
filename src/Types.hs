@@ -10,6 +10,7 @@ data Article = Article
     { articleTitle :: Text
     , articleLink :: Text
     , articleDescription :: Text
+    , articleDate :: Maybe Text
     } deriving (Show)
 
 data Channel = Channel

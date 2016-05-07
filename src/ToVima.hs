@@ -25,6 +25,7 @@ import qualified Text.HTML.DOM as HTML
 
 data ToVimaArticle = ToVimaArticle
     { articleTitle :: Text
+    , articleDate :: Text
     , articleSmallTitle :: Text
     , articleExtraText :: Text
     , articleImg :: Maybe Text
@@ -50,20 +51,25 @@ getChannel = do
             liftIO $ httpSink req $ \_ ->
                 HTML.eventConduit =$= parseContainers =$= CL.map toArticle =$= CL.consume
 
-    return Channel { channelTitle = "Το Βήμα Online"
-                   , channelLink = "http://www.tovima.gr/en"
-                   , channelDescription = "Latest news from Greece in English"
-                   , channelArticles = deduplicateArticles . mconcat $ (articles : articlesNext)
-                   }
+    pure Channel { channelTitle = "Το Βήμα Online"
+                 , channelLink = "http://www.tovima.gr/en"
+                 , channelDescription = "Latest news from Greece in English"
+                 , channelArticles = deduplicateArticles . mconcat $ (articles : articlesNext)
+                 }
 
+-- FIXME: The date without a proper time is not useful
 toArticle :: ToVimaArticle -> Article
-toArticle (ToVimaArticle title smallTitle extraText img link) = Article title link description
+toArticle (ToVimaArticle title date smallTitle extraText img link) = Article title link description Nothing --(Just rfc822Date)
     where
         imgTag = case img of
                    Nothing  -> T.empty
                    Just src -> "<img src=\"" `T.append` src `T.append` "\"/>"
+        --[_, dayMonth, year] = fmap T.strip (T.splitOn "," date)
+        --[month, day] = fmap T.strip (T.splitOn " " dayMonth)
+        --rfc822Date = day `T.append` " " `T.append` month `T.append` " " `T.append` year `T.append`
+        --                " 00:00:01"
 
-        description = imgTag `T.append`
+        description = imgTag `T.append` date `T.append` "<br/>" `T.append`
                             if T.null smallTitle
                                then extraText
                                else (smallTitle `T.append`
@@ -79,7 +85,7 @@ parseHtml = XP.force "html" $
         articles <- XP.force "body" $ XP.tagName "body" XP.ignoreAttrs $ \_ ->
             mconcat <$> XP.manyIgnore parseDivPagewrap XP.ignoreAllTreesContent
         void (XP.many XP.ignoreAllTreesContent)
-        return articles
+        pure articles
 
 parseDivPagewrap :: (MonadThrow m) => ConduitM XT.Event o m (Maybe [ToVimaArticle])
 parseDivPagewrap = tagNameWithAttrValue "div" "id" "pagewrap" $
@@ -96,10 +102,10 @@ parseContainer :: (MonadThrow m) => ConduitM XT.Event o m (Maybe ToVimaArticle)
 parseContainer =
     tagNameWithAttrValue "div" "class" "container" $ do
         (href, img) <- parseLinkImage
-        (title, smallTitle) <- parseDivText
+        (title, smallTitle, date) <- parseDivText
         void (XP.ignoreTagName "div")
         extraText <- parseExtraText
-        pure (ToVimaArticle title smallTitle extraText img href)
+        pure (ToVimaArticle title date smallTitle extraText img href)
 
 parseLinkImage :: (MonadThrow m) => ConduitM XT.Event o m (Text, Maybe Text)
 parseLinkImage = XP.force "link image" $
@@ -108,15 +114,14 @@ parseLinkImage = XP.force "link image" $
             XP.force "img" $ XP.tagName "img" (XP.requireAttr "src" <* XP.ignoreAttrs) pure
         pure (T.pack urlBase `T.append` href, img)
 
-parseDivText :: (MonadThrow m) => ConduitM XT.Event o m (Text, Text)
+parseDivText :: (MonadThrow m) => ConduitM XT.Event o m (Text, Text, Text)
 parseDivText = XP.force "div text" $
     tagNameWithAttrValue "div" "class" "text" $ do
         void (XP.ignoreTagName "span")
         title <- parseBigTitle
         smallTitle <- parseSmallTitle
-        -- TODO: parse span class date
-        void (XP.ignoreTreeName "span")
-        pure (T.strip title, T.strip smallTitle)
+        date <- parseDate
+        pure (T.strip title, T.strip smallTitle, T.strip date)
 
 parseBigTitle :: (MonadThrow m) => ConduitM XT.Event o m Text
 parseBigTitle = XP.force "h3" $
@@ -127,6 +132,10 @@ parseBigTitle = XP.force "h3" $
 parseSmallTitle :: (MonadThrow m) => ConduitM XT.Event o m Text
 parseSmallTitle = XP.force "span small_title" $
     tagNameWithAttrValue "span" "class" "small_title" XP.content
+
+parseDate :: (MonadThrow m) => ConduitM XT.Event o m Text
+parseDate = XP.force "span date" $
+    tagNameWithAttrValue "span" "class" "date" XP.content
 
 parseExtraText :: (MonadThrow m) => ConduitM XT.Event o m Text
 parseExtraText = XP.force "span extra_text" $
