@@ -15,9 +15,10 @@ executable html-rss-proxy
   hs-source-dirs:      src
   main-is:             Main.hs
   other-modules:       Rss
-                     , ToVima
                      , Types
                      , Utils
+                     , ToVima
+                     , MakThes
   ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base
                      , text

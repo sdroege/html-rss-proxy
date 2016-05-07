@@ -3,14 +3,16 @@
 import Types
 import Rss
 import qualified ToVima
+import qualified MakThes
 
 import Control.Monad.IO.Class
 
 import Web.Scotty
 
 main :: IO ()
-main = scotty 8080 $
+main = scotty 8080 $ do
     get "/to-vima" (getRss ToVima.getChannel)
+    get "/makthes" (getRss MakThes.getChannel)
 
 getRss :: IO Channel -> ActionM ()
 getRss getChannel = do
