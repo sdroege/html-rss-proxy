@@ -32,17 +32,20 @@ data ToVimaArticle = ToVimaArticle
     } deriving (Show)
 
 -- Parsing of HTML into Articles
-urlBase :: String
+urlBase, urlMain :: String
 urlBase = "http://www.tovima.gr"
+urlMain = "http://www.tovima.gr/en"
 
 url :: Int -> String
 url page = "http://www.tovima.gr/ajax.aspx?m=Dol.ToVima.ExtenderModule.ModuleUserControl&controlname=/User_Controls/International/ArticleListInternational.ascx&data=page%3D" ++ show page ++ "%26lang%3D1"
 
 getChannel :: (MonadIO m) => m Channel
 getChannel = do
-
-    articles <- fmap (deduplicateArticles . concat) $
-        forM [0, 1] $ \n -> do
+    articles <- fmap (fmap toArticle) $ do
+        req <- liftIO $ parseUrl urlMain
+        liftIO $ httpSink req $ \_ ->
+            HTML.eventConduit =$= parseHtml
+    articlesNext <- forM [0, 1] $ \n -> do
             req <- liftIO $ parseUrl (url n)
             liftIO $ httpSink req $ \_ ->
                 HTML.eventConduit =$= parseContainers =$= CL.map toArticle =$= CL.consume
@@ -50,7 +53,7 @@ getChannel = do
     return Channel { channelTitle = "Το Βήμα Online"
                    , channelLink = "http://www.tovima.gr/en"
                    , channelDescription = "Latest news from Greece in English"
-                   , channelArticles = articles
+                   , channelArticles = deduplicateArticles . mconcat $ (articles : articlesNext)
                    }
 
 toArticle :: ToVimaArticle -> Article
@@ -66,6 +69,25 @@ toArticle (ToVimaArticle title smallTitle extraText img link) = Article title li
                                else (smallTitle `T.append`
                                      "<br/><br/>" `T.append`
                                      extraText)
+
+-- FIXME: How to make this a Conduit XT.Event m ToVimaArticle instead, i.e.
+-- produce the articles lazily?
+parseHtml :: (MonadThrow m) => ConduitM XT.Event o m [ToVimaArticle]
+parseHtml = XP.force "html" $
+    XP.tagName "html" XP.ignoreAttrs $ \_ -> do
+        void (XP.many (XP.ignoreTree (/= "body")))
+        articles <- XP.force "body" $ XP.tagName "body" XP.ignoreAttrs $ \_ ->
+            mconcat <$> XP.manyIgnore parseDivPagewrap XP.ignoreAllTreesContent
+        void (XP.many XP.ignoreAllTreesContent)
+        return articles
+
+parseDivPagewrap :: (MonadThrow m) => ConduitM XT.Event o m (Maybe [ToVimaArticle])
+parseDivPagewrap = tagNameWithAttrValue "div" "id" "pagewrap" $
+    mconcat <$> XP.manyIgnore parseDivContent XP.ignoreAllTreesContent
+
+parseDivContent :: (MonadThrow m) => ConduitM XT.Event o m (Maybe [ToVimaArticle])
+parseDivContent = tagNameWithAttrValue "div" "id" "content" $
+    XP.manyIgnore parseContainer XP.ignoreAllTreesContent
 
 parseContainers :: (MonadThrow m) => Conduit XT.Event m ToVimaArticle
 parseContainers = XP.manyYield parseContainer
