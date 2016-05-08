@@ -16,7 +16,6 @@ import Data.Text (Text)
 import qualified Data.Text as T
 
 import Data.Conduit
-import qualified Data.Conduit.List as CL
 import Network.HTTP.Simple (httpSink)
 import Network.HTTP.Conduit (parseUrl)
 import qualified Data.XML.Types as XT
