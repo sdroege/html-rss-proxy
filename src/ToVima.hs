@@ -83,17 +83,17 @@ parseHtml = XP.force "html" $
     XP.tagName "html" XP.ignoreAttrs $ \_ -> do
         void (XP.many (XP.ignoreTree (/= "body")))
         articles <- XP.force "body" $ XP.tagName "body" XP.ignoreAttrs $ \_ ->
-            mconcat <$> XP.manyIgnore parseDivPagewrap XP.ignoreAllTreesContent
+            mconcat <$> XP.many' parseDivPagewrap
         void (XP.many XP.ignoreAllTreesContent)
         pure articles
 
 parseDivPagewrap :: (MonadThrow m) => ConduitM XT.Event o m (Maybe [ToVimaArticle])
 parseDivPagewrap = tagNameWithAttrValue "div" "id" "pagewrap" $
-    mconcat <$> XP.manyIgnore parseDivContent XP.ignoreAllTreesContent
+    mconcat <$> XP.many' parseDivContent
 
 parseDivContent :: (MonadThrow m) => ConduitM XT.Event o m (Maybe [ToVimaArticle])
 parseDivContent = tagNameWithAttrValue "div" "id" "content" $
-    XP.manyIgnore parseContainer XP.ignoreAllTreesContent
+    XP.many' parseContainer
 
 parseContainers :: (MonadThrow m) => Conduit XT.Event m ToVimaArticle
 parseContainers = XP.manyYield parseContainer
