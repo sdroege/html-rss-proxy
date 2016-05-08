@@ -4,6 +4,7 @@ import Types
 import Rss
 import qualified ToVima
 import qualified MakThes
+import qualified ThePressProject
 
 import Control.Monad.IO.Class
 
@@ -13,6 +14,7 @@ main :: IO ()
 main = scotty 8080 $ do
     get "/to-vima" (getRss ToVima.getChannel)
     get "/makthes" (getRss MakThes.getChannel)
+    get "/the-press-project" (getRss ThePressProject.getChannel)
 
 getRss :: IO Channel -> ActionM ()
 getRss getChannel = do
