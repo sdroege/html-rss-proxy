@@ -52,9 +52,7 @@ getChannel = do
 toArticle :: ThePressProjectArticle -> Article
 toArticle (ThePressProjectArticle title date text link img) = Article title link description Nothing
     where
-        [day, month, year] = T.splitOn "/" date
-        realDate = day `T.append` "." `T.append` month `T.append` ".20" `T.append` year
-        description = "<img src=\"" `T.append` img `T.append` "\"/>" `T.append` realDate `T.append` "<br/><br/>" `T.append` text
+        description = "<img src=\"" `T.append` img `T.append` "\"/>" `T.append` date `T.append` "<br/><br/>" `T.append` text
 
 -- FIXME: How to make this a Conduit XT.Event m ThePressProjectArticle instead, i.e.
 -- produce the articles lazily?
