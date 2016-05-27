@@ -20,8 +20,11 @@ executable html-rss-proxy
                      , ToVima
                      , MakThes
                      , ThePressProject
-  ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
+  ghc-options:         -O2 -Wall -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base
+                     , mtl
+                     , async
+                     , clock
                      , text
                      , bytestring
                      , data-default
