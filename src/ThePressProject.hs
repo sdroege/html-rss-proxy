@@ -12,6 +12,7 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Catch
 
+import Data.Monoid
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -52,7 +53,7 @@ getChannel = do
 toArticle :: ThePressProjectArticle -> Article
 toArticle (ThePressProjectArticle title date text link img) = Article title link description Nothing
     where
-        description = "<img src=\"" `T.append` img `T.append` "\"/>" `T.append` date `T.append` "<br/><br/>" `T.append` text
+        description = "<img src=\"" <> img <> "\"/>" <> date <> "<br/><br/>" <> text
 
 -- FIXME: How to make this a Conduit XT.Event m ThePressProjectArticle instead, i.e.
 -- produce the articles lazily?
@@ -106,7 +107,7 @@ parseDateImgLink = XP.force "div date" $ XP.tagName "div" XP.ignoreAttrs $ \_ ->
     (link, img) <- XP.force "div line" $ XP.tagName "div" XP.ignoreAttrs $ \_ ->
         XP.force "a" $ XP.tagName "a" (XP.requireAttr "href" <* XP.ignoreAttrs) $ \href -> do
             img <- XP.force "img" $ XP.tagName "img" (XP.requireAttr "src" <* XP.ignoreAttrs) pure
-            pure (T.pack urlBase `T.append` "/" `T.append` href, T.pack urlBase `T.append` T.drop 2 img)
+            pure (T.pack urlBase <> "/" <> href, T.pack urlBase <> T.drop 2 img)
 
     date <- XP.force "div" $ XP.tagName "div" XP.ignoreAttrs $ \_ ->
         XP.force "div open" $ tagNameWithAttrValue "div" "class" "open" $

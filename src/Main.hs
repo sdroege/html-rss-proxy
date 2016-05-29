@@ -5,6 +5,8 @@ import Rss
 import Db
 import Config
 
+import Data.Monoid
+
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
@@ -56,11 +58,11 @@ getRss channels name = do
     (acid, currentErrorChannels) <- liftIO (readMVar channels)
 
     case M.lookup name currentErrorChannels of
-      Just (Left err) -> raise ("Error in channel " `TL.append` TL.fromStrict name `TL.append` TL.fromStrict err)
+      Just (Left err) -> raise ("Error in channel " <> TL.fromStrict name <> TL.fromStrict err)
       _               -> do
           rssDoc <- query' acid (GetChannel name)
           case rssDoc of
-            Nothing -> raise ("Empty channel " `TL.append` TL.fromStrict name)
+            Nothing -> raise ("Empty channel " <> TL.fromStrict name)
             Just doc -> raw (renderChannelToRSS doc)
 
 updateChannels :: MVar (AcidState Channels, ErrorChannels) -> IO ()

@@ -12,6 +12,7 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Catch
 
+import Data.Monoid
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -51,7 +52,7 @@ getChannel = do
 toArticle :: MakThesArticle -> Article
 toArticle (MakThesArticle title date text link) = Article title link description Nothing
     where
-        description = date `T.append` "<br/><br/>" `T.append` text
+        description = date <> "<br/><br/>" <> text
 
 -- FIXME: How to make this a Conduit XT.Event m MakThesArticle instead, i.e.
 -- produce the articles lazily?
@@ -94,7 +95,7 @@ parseItem = do
           (title, link) <- XP.force "div class title" $ tagNameWithAttrValue "div" "class" "title" $
               XP.force "a title" $ XP.tagName "a" (XP.requireAttr "href" <* XP.ignoreAttrs) $ \link -> do
                   title <- XP.content
-                  pure (title, T.pack urlBase `T.append` link)
+                  pure (title, T.pack urlBase <> link)
           text <- XP.force "text" $ tagNameWithAttrValue "div" "class" "text" XP.content
           void (XP.ignoreTagName "hr")
           pure (Just (MakThesArticle title realDate text link))

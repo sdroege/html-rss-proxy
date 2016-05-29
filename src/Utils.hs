@@ -15,6 +15,7 @@ import Types
 import Control.Monad
 import Control.Monad.Catch
 
+import Data.Monoid
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.List (nubBy)
@@ -73,12 +74,12 @@ setChannelArticleDate date channel = channel { channelArticles = map updateArtic
 
 dateToText :: Date -> Text
 dateToText (Date year month day hour minute second) =
-    T.pack (show day) `T.append` " " `T.append`
-    monthToName month `T.append` " " `T.append`
-    T.pack (show year) `T.append` " " `T.append`
-    T.pack (show hour) `T.append` ":" `T.append`
-    twoDigits minute `T.append` ":" `T.append`
-    twoDigits second `T.append` " " `T.append`
+    T.pack (show day) <> " " <>
+    monthToName month <> " " <>
+    T.pack (show year) <> " " <>
+    T.pack (show hour) <> ":" <>
+    twoDigits minute <> ":" <>
+    twoDigits second <> " " <>
     "GMT"
 
 monthToName :: Int -> Text
@@ -97,6 +98,6 @@ monthToName 12 = "Dec"
 monthToName _ = error "invalid number"
 
 twoDigits :: Int -> Text
-twoDigits x | x >= 0 && x < 10 = "0" `T.append` T.pack (show x)
+twoDigits x | x >= 0 && x < 10 = "0" <> T.pack (show x)
             | x < 100          = T.pack (show x)
 twoDigits _ = error "invalid number"

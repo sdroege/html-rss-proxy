@@ -12,6 +12,7 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Catch
 
+import Data.Monoid
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -63,17 +64,17 @@ toArticle (ToVimaArticle title date smallTitle extraText img link) = Article tit
     where
         imgTag = case img of
                    Nothing  -> T.empty
-                   Just src -> "<img src=\"" `T.append` src `T.append` "\"/>"
+                   Just src -> "<img src=\"" <> src <> "\"/>"
         --[_, dayMonth, year] = fmap T.strip (T.splitOn "," date)
         --[month, day] = fmap T.strip (T.splitOn " " dayMonth)
-        --rfc822Date = day `T.append` " " `T.append` month `T.append` " " `T.append` year `T.append`
+        --rfc822Date = day <> " " <> month <> " " <> year <>
         --                " 00:00:01"
 
-        description = imgTag `T.append` date `T.append` "<br/>" `T.append`
+        description = imgTag <> date <> "<br/>" <>
                             if T.null smallTitle
                                then extraText
-                               else (smallTitle `T.append`
-                                     "<br/><br/>" `T.append`
+                               else (smallTitle <>
+                                     "<br/><br/>" <>
                                      extraText)
 
 -- FIXME: How to make this a Conduit XT.Event m ToVimaArticle instead, i.e.
@@ -112,7 +113,7 @@ parseLinkImage = XP.force "link image" $
     XP.tagName "a" (XP.requireAttr "href" <* XP.ignoreAttrs) $ \href -> do
         img <- tagNameWithAttrValue "div" "class" "foto" $
             XP.force "img" $ XP.tagName "img" (XP.requireAttr "src" <* XP.ignoreAttrs) pure
-        pure (T.pack urlBase `T.append` href, img)
+        pure (T.pack urlBase <> href, img)
 
 parseDivText :: (MonadThrow m) => ConduitM XT.Event o m (Text, Text, Text)
 parseDivText = XP.force "div text" $
