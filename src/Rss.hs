@@ -6,6 +6,7 @@ module Rss
 where
 
 import Types
+import Utils
 
 import Control.Monad
 
@@ -35,6 +36,6 @@ generateRss (Channel cTitle cLink cDescription articles) =
                             XW.element "link" link
                             XW.element "description" description
                             XW.elementA "guid" [(X.Name "isPermaLink" Nothing Nothing, "true")] link
-                            maybe (return ()) (XW.element "pubDate") date
+                            maybe (return ()) (XW.element "pubDate" . dateToText) date
     in
         doc { X.documentRoot = (X.documentRoot doc) { X.elementAttributes = M.singleton (X.Name "version" Nothing Nothing) "2.0" } }

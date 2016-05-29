@@ -2,6 +2,7 @@
 
 import Types
 import Rss
+import Utils
 import qualified ToVima
 import qualified MakThes
 import qualified ThePressProject
@@ -26,6 +27,8 @@ import qualified Data.Text.Lazy as TL
 import Text.XML.Stream.Parse (XmlException)
 
 import System.Clock
+import Data.Time.Clock
+import Data.Time.Calendar
 
 type Channels = Map T.Text Channel
 type ErrorChannels = Map T.Text (Either T.Text Int)
@@ -35,6 +38,9 @@ updateInterval = 1000000000 * 60 * 15 -- 15 minutes in ns
 
 retryCount :: Int
 retryCount = 3
+
+maxChannelSize :: Int
+maxChannelSize = 50
 
 channelList :: [(String, T.Text, IO Channel)]
 channelList =
@@ -66,16 +72,16 @@ getRss channels name = do
             Just doc -> raw doc
 
 updateChannels :: MVar (Channels, ErrorChannels) -> IO ()
-updateChannels channels = getCurrentTime >>= go
+updateChannels channels = getCurrentMonotonicTime >>= go
   where
-    getCurrentTime = toNanoSecs <$> getTime Monotonic
+    getCurrentMonotonicTime = toNanoSecs <$> getTime Monotonic
 
     go prevTime = do
         -- TODO: Persistent storage for the channels
         forM_ channelList $ \(_, name, getChannel) ->
             updateChannel name getChannel
 
-        currentTime <- getCurrentTime
+        currentTime <- getCurrentMonotonicTime
         let nextTime   = prevTime + updateInterval
             waitTime   = nextTime - currentTime
             waitTimeUs = fromIntegral $ waitTime `div` 1000
@@ -88,13 +94,23 @@ updateChannels channels = getCurrentTime >>= go
 
     updateChannel name getChannel = flip catches (handlers name) $ do
         channel <- getChannel
-        -- TODO: Merge old and new channel, drop too old items
-        --       Remember time first seen if none provided
-        --       Update text if changed but not time
         if null (channelArticles channel) then
             storeException name "Empty channel"
-        else
-            modifyMVar_ channels $ \(currentChannels, currentErrorChannels) -> return (M.insert name channel currentChannels, currentErrorChannels)
+            else
+                modifyMVar_ channels $ \(currentChannels, currentErrorChannels) -> do
+                    (UTCTime nowDay nowTime) <- getCurrentTime
+                    let (year, month, day) = toGregorian nowDay
+                        seconds = fromInteger (diffTimeToPicoseconds nowTime `div` 1000000000000)
+                        (hours, seconds') = divMod seconds (60*60)
+                        (minutes, seconds'') = divMod seconds' 60
+                        date = Date (fromInteger year) month day hours minutes seconds''
+                        newChannels = M.alter (mergeChannel date channel) name currentChannels
+                    return (newChannels, currentErrorChannels)
+
+    mergeChannel date newChannel Nothing = Just (setChannelArticleDate date newChannel)
+    mergeChannel date newChannel (Just oldChannel) = Just mergedChannel
+      where
+        mergedChannel = setChannelArticleDate date . pruneOldChannelArticles maxChannelSize . mergeChannelArticles oldChannel $ newChannel
 
     handlers name = [ Handler (\(e :: IOException) -> storeException name (T.pack (show e)))
                     , Handler (\(e :: XmlException) -> storeException name (T.pack (show e)))
@@ -113,3 +129,4 @@ updateChannels channels = getCurrentTime >>= go
                       Nothing -> M.insert name (Right 1) currentErrorChannels
 
             return (currentChannels, newErrorChannels)
+
