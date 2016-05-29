@@ -45,17 +45,17 @@ main = do
     createDirectoryIfMissing True location
 
     bracket (openLocalStateFrom location (Channels M.empty)) createCheckpointAndClose $ \acid -> do
-        channels <- newMVar (acid, M.empty)
-        void $ async (updateChannels channels)
+        errorChannels <- newMVar M.empty
+        void $ async (updateChannels acid errorChannels)
         scotty port $
             forM_ channelList $ \(path, name, _) ->
-                get (literal path) (getRss channels name)
+                get (literal path) (getRss acid errorChannels name)
 
-getRss :: MVar (AcidState Channels, ErrorChannels) -> T.Text -> ActionM ()
-getRss channels name = do
+getRss :: AcidState Channels -> MVar ErrorChannels -> T.Text -> ActionM ()
+getRss acid errorChannels name = do
     setHeader "Content-Type" "application/rss+xml; charset=UTF-8"
 
-    (acid, currentErrorChannels) <- liftIO (readMVar channels)
+    currentErrorChannels <- liftIO (readMVar errorChannels)
 
     case M.lookup name currentErrorChannels of
       Just (Left err) -> raise ("Error in channel " <> TL.fromStrict name <> TL.fromStrict err)
@@ -65,8 +65,8 @@ getRss channels name = do
             Nothing -> raise ("Empty channel " <> TL.fromStrict name)
             Just doc -> raw (renderChannelToRSS doc)
 
-updateChannels :: MVar (AcidState Channels, ErrorChannels) -> IO ()
-updateChannels channels = getCurrentMonotonicTime >>= go
+updateChannels :: AcidState Channels -> MVar ErrorChannels -> IO ()
+updateChannels acid errorChannels = getCurrentMonotonicTime >>= go
   where
     getCurrentMonotonicTime = toNanoSecs <$> getTime Monotonic
 
@@ -91,7 +91,7 @@ updateChannels channels = getCurrentMonotonicTime >>= go
         if null (channelArticles channel) then
             storeException name "Empty channel"
             else
-                modifyMVar_ channels $ \(acid, currentErrorChannels) -> do
+                modifyMVar_ errorChannels $ \currentErrorChannels -> do
                     (UTCTime nowDay nowTime) <- getCurrentTime
                     let (year, month, day) = toGregorian nowDay
                         seconds = fromInteger (diffTimeToPicoseconds nowTime `div` 1000000000000)
@@ -99,7 +99,7 @@ updateChannels channels = getCurrentMonotonicTime >>= go
                         (minutes, seconds'') = divMod seconds' 60
                         date = Date (fromInteger year) month day hours minutes seconds''
                     _ <- update' acid (UpdateChannel name date channel)
-                    return (acid, M.delete name currentErrorChannels)
+                    return (M.delete name currentErrorChannels)
 
     handlers name = [ Handler (\(e :: IOException) -> storeException name (T.pack (show e)))
                     , Handler (\(e :: XmlException) -> storeException name (T.pack (show e)))
@@ -107,7 +107,7 @@ updateChannels channels = getCurrentMonotonicTime >>= go
                     ]
 
     storeException name exception =
-        modifyMVar_ channels $ \(acid, currentErrorChannels) -> do
+        modifyMVar_ errorChannels $ \currentErrorChannels -> do
             let newErrorChannels =
                     case M.lookup name currentErrorChannels of
                       Just (Left _) -> M.insert name (Left exception) currentErrorChannels
@@ -117,5 +117,5 @@ updateChannels channels = getCurrentMonotonicTime >>= go
                                               M.insert name (Right (succ count)) currentErrorChannels
                       Nothing -> M.insert name (Right 1) currentErrorChannels
 
-            return (acid, newErrorChannels)
+            return newErrorChannels
 
