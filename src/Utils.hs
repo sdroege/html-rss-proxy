@@ -81,23 +81,22 @@ dateToText (Date year month day hour minute second) =
     twoDigits minute <> ":" <>
     twoDigits second <> " " <>
     "GMT"
+  where
+    monthToName 1 = "Jan"
+    monthToName 2 = "Feb"
+    monthToName 3 = "Mar"
+    monthToName 4 = "Apr"
+    monthToName 5 = "May"
+    monthToName 6 = "Jun"
+    monthToName 7 = "Jul"
+    monthToName 8 = "Aug"
+    monthToName 9 = "Sep"
+    monthToName 10 = "Oct"
+    monthToName 11 = "Nov"
+    monthToName 12 = "Dec"
+    monthToName _ = error "invalid number"
 
-monthToName :: Int -> Text
-monthToName 1 = "Jan"
-monthToName 2 = "Feb"
-monthToName 3 = "Mar"
-monthToName 4 = "Apr"
-monthToName 5 = "May"
-monthToName 6 = "Jun"
-monthToName 7 = "Jul"
-monthToName 8 = "Aug"
-monthToName 9 = "Sep"
-monthToName 10 = "Oct"
-monthToName 11 = "Nov"
-monthToName 12 = "Dec"
-monthToName _ = error "invalid number"
+    twoDigits x | x >= 0 && x < 10 = "0" <> T.pack (show x)
+                | x < 100          = T.pack (show x)
+    twoDigits _ = error "invalid number"
 
-twoDigits :: Int -> Text
-twoDigits x | x >= 0 && x < 10 = "0" <> T.pack (show x)
-            | x < 100          = T.pack (show x)
-twoDigits _ = error "invalid number"
