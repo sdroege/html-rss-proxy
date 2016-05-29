@@ -2,10 +2,8 @@
 
 import Types
 import Rss
-import Utils
-import qualified ToVima
-import qualified MakThes
-import qualified ThePressProject
+import Db
+import Config
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
@@ -30,48 +28,42 @@ import System.Clock
 import Data.Time.Clock
 import Data.Time.Calendar
 
-type Channels = Map T.Text Channel
+import Data.Acid
+import Data.Acid.Advanced (query', update')
+import Data.Acid.Local (createCheckpointAndClose)
+
+import System.Directory (createDirectoryIfMissing)
+import System.Environment.XDG.BaseDir (getUserDataDir)
+
 type ErrorChannels = Map T.Text (Either T.Text Int)
-
-updateInterval :: Integer
-updateInterval = 1000000000 * 60 * 15 -- 15 minutes in ns
-
-retryCount :: Int
-retryCount = 3
-
-maxChannelSize :: Int
-maxChannelSize = 50
-
-channelList :: [(String, T.Text, IO Channel)]
-channelList =
-    [ ("/to-vima", "ToVima", ToVima.getChannel)
-    , ("/makthes", "MakThes", MakThes.getChannel)
-    , ("/the-press-project", "ThePressProject", ThePressProject.getChannel)
-    ]
 
 main :: IO ()
 main = do
-    channels <- newMVar (M.empty, M.empty)
-    void $ async (updateChannels channels)
-    scotty 8080 $
-        forM_ channelList $ \(path, name, _) ->
-            get (literal path) (getRss channels name)
+    location <- getUserDataDir "html-rss-proxy"
+    createDirectoryIfMissing True location
 
-getRss :: MVar (Channels, ErrorChannels) -> T.Text -> ActionM ()
+    bracket (openLocalStateFrom location (Channels M.empty)) createCheckpointAndClose $ \acid -> do
+        channels <- newMVar (acid, M.empty)
+        void $ async (updateChannels channels)
+        scotty 8080 $
+            forM_ channelList $ \(path, name, _) ->
+                get (literal path) (getRss channels name)
+
+getRss :: MVar (AcidState Channels, ErrorChannels) -> T.Text -> ActionM ()
 getRss channels name = do
     setHeader "Content-Type" "application/rss+xml; charset=UTF-8"
 
-    (currentChannels, currentErrorChannels) <- liftIO (readMVar channels)
+    (acid, currentErrorChannels) <- liftIO (readMVar channels)
 
     case M.lookup name currentErrorChannels of
       Just (Left err) -> raise ("Error in channel " `TL.append` TL.fromStrict name `TL.append` TL.fromStrict err)
       _               -> do
-          let rssDoc = renderChannelToRSS <$> M.lookup name currentChannels
+          rssDoc <- query' acid (GetChannel name)
           case rssDoc of
             Nothing -> raise ("Empty channel " `TL.append` TL.fromStrict name)
-            Just doc -> raw doc
+            Just doc -> raw (renderChannelToRSS doc)
 
-updateChannels :: MVar (Channels, ErrorChannels) -> IO ()
+updateChannels :: MVar (AcidState Channels, ErrorChannels) -> IO ()
 updateChannels channels = getCurrentMonotonicTime >>= go
   where
     getCurrentMonotonicTime = toNanoSecs <$> getTime Monotonic
@@ -97,20 +89,15 @@ updateChannels channels = getCurrentMonotonicTime >>= go
         if null (channelArticles channel) then
             storeException name "Empty channel"
             else
-                modifyMVar_ channels $ \(currentChannels, currentErrorChannels) -> do
+                modifyMVar_ channels $ \(acid, currentErrorChannels) -> do
                     (UTCTime nowDay nowTime) <- getCurrentTime
                     let (year, month, day) = toGregorian nowDay
                         seconds = fromInteger (diffTimeToPicoseconds nowTime `div` 1000000000000)
                         (hours, seconds') = divMod seconds (60*60)
                         (minutes, seconds'') = divMod seconds' 60
                         date = Date (fromInteger year) month day hours minutes seconds''
-                        newChannels = M.alter (mergeChannel date channel) name currentChannels
-                    return (newChannels, M.delete name currentErrorChannels)
-
-    mergeChannel date newChannel Nothing = Just (setChannelArticleDate date newChannel)
-    mergeChannel date newChannel (Just oldChannel) = Just mergedChannel
-      where
-        mergedChannel = setChannelArticleDate date . pruneOldChannelArticles maxChannelSize . mergeChannelArticles oldChannel $ newChannel
+                    _ <- update' acid (UpdateChannel name date channel)
+                    return (acid, M.delete name currentErrorChannels)
 
     handlers name = [ Handler (\(e :: IOException) -> storeException name (T.pack (show e)))
                     , Handler (\(e :: XmlException) -> storeException name (T.pack (show e)))
@@ -118,7 +105,7 @@ updateChannels channels = getCurrentMonotonicTime >>= go
                     ]
 
     storeException name exception =
-        modifyMVar_ channels $ \(currentChannels, currentErrorChannels) -> do
+        modifyMVar_ channels $ \(acid, currentErrorChannels) -> do
             let newErrorChannels =
                     case M.lookup name currentErrorChannels of
                       Just (Left _) -> M.insert name (Left exception) currentErrorChannels
@@ -128,5 +115,5 @@ updateChannels channels = getCurrentMonotonicTime >>= go
                                               M.insert name (Right (succ count)) currentErrorChannels
                       Nothing -> M.insert name (Right 1) currentErrorChannels
 
-            return (currentChannels, newErrorChannels)
+            return (acid, newErrorChannels)
 

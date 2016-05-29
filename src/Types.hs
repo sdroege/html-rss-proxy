@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveDataTypeable, TypeFamilies, TemplateHaskell #-}
+
 module Types
     ( Article(..)
     , Date(..)
@@ -7,6 +9,9 @@ where
 
 import Data.Text (Text)
 
+import Data.Typeable
+import Data.SafeCopy
+
 data Date = Date
     { dateYear :: Int
     , dateMonth :: Int
@@ -14,19 +19,26 @@ data Date = Date
     , dateHour :: Int
     , dateMinute :: Int
     , dateSecond :: Int
-    } deriving (Show)
+    } deriving (Show, Typeable)
+
+$(deriveSafeCopy 0 'base ''Date)
 
 data Article = Article
     { articleTitle :: Text
     , articleLink :: Text
     , articleDescription :: Text
     , articleDate :: Maybe Date
-    } deriving (Show)
+    } deriving (Show, Typeable)
+
+$(deriveSafeCopy 0 'base ''Article)
 
 data Channel = Channel
     { channelTitle :: Text
     , channelLink :: Text
     , channelDescription :: Text
     , channelArticles :: [Article]
-    } deriving (Show)
+    } deriving (Show, Typeable)
+
+$(deriveSafeCopy 0 'base ''Channel)
+
 
