@@ -105,7 +105,7 @@ updateChannels channels = getCurrentMonotonicTime >>= go
                         (minutes, seconds'') = divMod seconds' 60
                         date = Date (fromInteger year) month day hours minutes seconds''
                         newChannels = M.alter (mergeChannel date channel) name currentChannels
-                    return (newChannels, currentErrorChannels)
+                    return (newChannels, M.delete name currentErrorChannels)
 
     mergeChannel date newChannel Nothing = Just (setChannelArticleDate date newChannel)
     mergeChannel date newChannel (Just oldChannel) = Just mergedChannel
