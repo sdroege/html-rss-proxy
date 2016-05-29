@@ -71,7 +71,6 @@ updateChannels acid errorChannels = getCurrentMonotonicTime >>= go
     getCurrentMonotonicTime = toNanoSecs <$> getTime Monotonic
 
     go prevTime = do
-        -- TODO: Persistent storage for the channels
         forM_ channelList $ \(_, name, getChannel) ->
             updateChannel name getChannel
 
