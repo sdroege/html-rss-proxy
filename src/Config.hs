@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Config
-    ( updateInterval
+    ( port
+    , updateInterval
     , retryCount
     , maxChannelSize
     , channelList
@@ -14,6 +15,9 @@ import qualified MakThes
 import qualified ThePressProject
 
 import qualified Data.Text as T
+
+port :: Int
+port = 8080
 
 updateInterval :: Integer
 updateInterval = 1000000000 * 60 * 15 -- 15 minutes in ns

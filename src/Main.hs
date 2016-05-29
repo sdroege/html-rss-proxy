@@ -47,7 +47,7 @@ main = do
     bracket (openLocalStateFrom location (Channels M.empty)) createCheckpointAndClose $ \acid -> do
         channels <- newMVar (acid, M.empty)
         void $ async (updateChannels channels)
-        scotty 8080 $
+        scotty port $
             forM_ channelList $ \(path, name, _) ->
                 get (literal path) (getRss channels name)
 
