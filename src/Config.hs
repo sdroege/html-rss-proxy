@@ -26,7 +26,7 @@ retryCount :: Int
 retryCount = 3
 
 maxChannelSize :: Int
-maxChannelSize = 50
+maxChannelSize = 200
 
 channelList :: [(String, T.Text, IO Channel)]
 channelList =
