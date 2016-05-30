@@ -28,6 +28,7 @@ executable html-rss-proxy
                      , async
                      , clock
                      , time
+                     , filepath
                      , directory
                      , xdg-basedir
                      , text
