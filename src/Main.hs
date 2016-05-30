@@ -45,6 +45,7 @@ main = do
     createDirectoryIfMissing True location
 
     bracket (openLocalStateFrom location (Channels M.empty)) createCheckpointAndClose $ \acid -> do
+        createArchive acid
         errorChannels <- newMVar M.empty
         void $ async (updateChannels acid errorChannels)
         scotty port $
