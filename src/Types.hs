@@ -22,7 +22,7 @@ data Date = Date
     , dateHour :: Int
     , dateMinute :: Int
     , dateSecond :: Int
-    } deriving (Show, Typeable, Data, Generic, NFData)
+    } deriving (Show, Eq, Typeable, Data, Generic, NFData)
 
 $(deriveSafeCopy 0 'base ''Date)
 
@@ -31,7 +31,7 @@ data Article = Article
     , articleLink :: Text
     , articleDescription :: Text
     , articleDate :: Maybe Date
-    } deriving (Show, Typeable, Data, Generic, NFData)
+    } deriving (Show, Eq, Typeable, Data, Generic, NFData)
 
 $(deriveSafeCopy 0 'base ''Article)
 
@@ -40,7 +40,7 @@ data Channel = Channel
     , channelLink :: Text
     , channelDescription :: Text
     , channelArticles :: [Article]
-    } deriving (Show, Typeable, Data, Generic, NFData)
+    } deriving (Show, Eq, Typeable, Data, Generic, NFData)
 
 $(deriveSafeCopy 0 'base ''Channel)
 
