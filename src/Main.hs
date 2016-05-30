@@ -89,16 +89,16 @@ updateChannels acid errorChannels = getCurrentMonotonicTime >>= go
         channel <- getChannel
         if null (channelArticles channel) then
             storeException name "Empty channel"
-            else
-                modifyMVar_ errorChannels $ \currentErrorChannels -> do
-                    (UTCTime nowDay nowTime) <- getCurrentTime
-                    let (year, month, day) = toGregorian nowDay
-                        seconds = fromInteger (diffTimeToPicoseconds nowTime `div` 1000000000000)
-                        (hours, seconds') = divMod seconds (60*60)
-                        (minutes, seconds'') = divMod seconds' 60
-                        date = Date (fromInteger year) month day hours minutes seconds''
-                    _ <- update' acid (UpdateChannel name date channel)
-                    return (M.delete name currentErrorChannels)
+        else
+            modifyMVar_ errorChannels $ \currentErrorChannels -> do
+                (UTCTime nowDay nowTime) <- getCurrentTime
+                let (year, month, day) = toGregorian nowDay
+                    seconds = fromInteger (diffTimeToPicoseconds nowTime `div` 1000000000000)
+                    (hours, seconds') = divMod seconds (60*60)
+                    (minutes, seconds'') = divMod seconds' 60
+                    date = Date (fromInteger year) month day hours minutes seconds''
+                update' acid (UpdateChannel name date channel)
+                return (M.delete name currentErrorChannels)
 
     handlers name = [ Handler (\(e :: IOException) -> storeException name (T.pack (show e)))
                     , Handler (\(e :: XmlException) -> storeException name (T.pack (show e)))

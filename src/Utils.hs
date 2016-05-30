@@ -52,10 +52,10 @@ mergeChannelArticles old new = new { channelArticles = mergedArticles }
         (newArticles', updatedArticles) = foldr go (newArticles, []) oldArticles
         -- Check if old article was updated, and return remaining new articles
         -- and the old/updated articles
-        go o (n, us) = (n', u:us)
+        go o (ns, us) = (ns', u:us)
           where
             -- New version of old article, if any, and list of new articles without the new version
-            (e, n') = extract (\a -> articleLink a == articleLink o) n
+            (e, ns') = extract (\a -> articleLink a == articleLink o) ns
             -- Updated article with old date if any update, or old article
             u = maybe o (\e' -> e' { articleDate = articleDate o }) e
 
