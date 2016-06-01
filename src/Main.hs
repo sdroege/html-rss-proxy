@@ -25,6 +25,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 
 import Text.XML.Stream.Parse (XmlException)
+import Network.HTTP.Conduit (HttpException)
 
 import System.Clock
 import Data.Time.Clock
@@ -112,6 +113,7 @@ updateChannels acid errorChannels = getCurrentMonotonicTime >>= go
                 return (succ currentUpdateCount `mod` 10, M.delete name currentErrorChannels)
 
     handlers name = [ Handler (\(e :: IOException) -> storeException name (T.pack (show e)))
+                    , Handler (\(e :: HttpException) -> storeException name (T.pack (show e)))
                     , Handler (\(e :: XmlException) -> storeException name (T.pack (show e)))
                     , Handler (\(e :: SomeException) -> putStrLn ("Exception while updating " ++ T.unpack name ++ ": " ++ show e) >> exitFailure)
                     ]
