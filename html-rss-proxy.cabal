@@ -45,6 +45,10 @@ executable html-rss-proxy
                      , xml-conduit
                      , xml-conduit-writer
                      , html-conduit
+                     , cereal
+                     , cereal-text
+                     , filelock
+                     , atomic-write
                      , safecopy
                      , acid-state
   default-language:    Haskell2010

@@ -14,6 +14,8 @@ import Data.Data (Data)
 import Control.DeepSeq (NFData)
 import Data.Typeable
 import Data.SafeCopy
+import Data.Serialize
+import Data.Serialize.Text
 
 data Date = Date
     { dateYear :: Int
@@ -22,7 +24,7 @@ data Date = Date
     , dateHour :: Int
     , dateMinute :: Int
     , dateSecond :: Int
-    } deriving (Show, Eq, Typeable, Data, Generic, NFData)
+    } deriving (Show, Eq, Typeable, Data, Generic, Serialize, NFData)
 
 $(deriveSafeCopy 0 'base ''Date)
 
@@ -31,7 +33,7 @@ data Article = Article
     , articleLink :: Text
     , articleDescription :: Text
     , articleDate :: Maybe Date
-    } deriving (Show, Eq, Typeable, Data, Generic, NFData)
+    } deriving (Show, Eq, Typeable, Data, Generic, Serialize, NFData)
 
 $(deriveSafeCopy 0 'base ''Article)
 
@@ -40,7 +42,7 @@ data Channel = Channel
     , channelLink :: Text
     , channelDescription :: Text
     , channelArticles :: [Article]
-    } deriving (Show, Eq, Typeable, Data, Generic, NFData)
+    } deriving (Show, Eq, Typeable, Data, Generic, Serialize, NFData)
 
 $(deriveSafeCopy 0 'base ''Channel)
 

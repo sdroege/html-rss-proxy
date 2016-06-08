@@ -55,28 +55,35 @@ main = do
 
     bracket (openLocalStateFrom location (Channels M.empty)) createCheckpointAndClose $ \acid -> do
         cleanupDatabase acid
-        errorChannels <- newMVar (1, M.empty)
-        void $ async (updateChannels acid errorChannels)
+
+        forM_ channelList $ \(_, name, _) -> do
+            channel <- query' acid (GetChannel name)
+            case channel of
+                Just c -> updateChannel' location name Nothing c
+                _      -> return ()
+
+        errorChannels <- newMVar M.empty
+        void $ async (updateChannels location errorChannels)
         scotty port $
             forM_ channelList $ \(path, name, _) ->
-                get (literal path) (getRss acid errorChannels name)
+                get (literal path) (getRss location errorChannels name)
 
-getRss :: AcidState Channels -> MVar (Int, ErrorChannels) -> T.Text -> ActionM ()
-getRss acid errorChannels name = do
+getRss :: FilePath -> MVar ErrorChannels -> T.Text -> ActionM ()
+getRss path errorChannels name = do
     setHeader "Content-Type" "application/rss+xml; charset=UTF-8"
 
-    (_, currentErrorChannels) <- liftIO (readMVar errorChannels)
+    currentErrorChannels <- liftIO (readMVar errorChannels)
 
     case M.lookup name currentErrorChannels of
       Just (Left err) -> raise ("Error in channel " <> TL.fromStrict name <> TL.fromStrict err)
       _               -> do
-          rssDoc <- query' acid (GetChannel name)
-          case rssDoc of
+          channel <- liftIO $ getChannel' path name
+          case channel of
             Nothing -> raise ("Empty channel " <> TL.fromStrict name)
-            Just doc -> raw (renderChannelToRSS doc)
+            Just c  -> raw (renderChannelToRSS c)
 
-updateChannels :: AcidState Channels -> MVar (Int, ErrorChannels) -> IO ()
-updateChannels acid errorChannels = getCurrentMonotonicTime >>= go
+updateChannels :: FilePath -> MVar ErrorChannels -> IO ()
+updateChannels path errorChannels = getCurrentMonotonicTime >>= go
   where
     getCurrentMonotonicTime = toNanoSecs <$> getTime Monotonic
 
@@ -100,17 +107,16 @@ updateChannels acid errorChannels = getCurrentMonotonicTime >>= go
         if null (channelArticles channel) then
             storeException name "Empty channel"
         else
-            modifyMVar_ errorChannels $ \(currentUpdateCount, currentErrorChannels) -> do
+            modifyMVar_ errorChannels $ \currentErrorChannels -> do
                 (UTCTime nowDay nowTime) <- getCurrentTime
                 let (year, month, day) = toGregorian nowDay
                     seconds = fromInteger (diffTimeToPicoseconds nowTime `div` 1000000000000)
                     (hours, seconds') = divMod seconds (60*60)
                     (minutes, seconds'') = divMod seconds' 60
                     date = Date (fromInteger year) month day hours minutes seconds''
-                update' acid (UpdateChannel name date channel)
-                when (currentUpdateCount `mod` 10 == 0) $ cleanupDatabase acid
+                updateChannel' path name (Just date) channel
 
-                return (succ currentUpdateCount `mod` 10, M.delete name currentErrorChannels)
+                return (M.delete name currentErrorChannels)
 
     handlers name = [ Handler (\(e :: IOException) -> storeException name (T.pack (show e)))
                     , Handler (\(e :: HttpException) -> storeException name (T.pack (show e)))
@@ -119,7 +125,7 @@ updateChannels acid errorChannels = getCurrentMonotonicTime >>= go
                     ]
 
     storeException name exception =
-        modifyMVar_ errorChannels $ \(currentUpdateCount, currentErrorChannels) -> do
+        modifyMVar_ errorChannels $ \currentErrorChannels -> do
             let newErrorChannels =
                     case M.lookup name currentErrorChannels of
                       Just (Left _) -> M.insert name (Left exception) currentErrorChannels
@@ -129,5 +135,5 @@ updateChannels acid errorChannels = getCurrentMonotonicTime >>= go
                                               M.insert name (Right (succ count)) currentErrorChannels
                       Nothing -> M.insert name (Right 1) currentErrorChannels
 
-            return (currentUpdateCount, newErrorChannels)
+            return newErrorChannels
 
