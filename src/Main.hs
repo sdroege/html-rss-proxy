@@ -31,42 +31,22 @@ import System.Clock
 import Data.Time.Clock
 import Data.Time.Calendar
 
-import Data.Acid
-import Data.Acid.Advanced (query', update')
-import Data.Acid.Local (createCheckpointAndClose)
-
 import System.Directory (createDirectoryIfMissing, removeDirectoryRecursive)
 import System.FilePath ((</>))
 import System.Environment.XDG.BaseDir (getUserDataDir)
 
 type ErrorChannels = Map T.Text (Either T.Text Int)
 
-cleanupDatabase :: AcidState Channels -> IO ()
-cleanupDatabase acid = do
-    createCheckpoint acid
-    createArchive acid
-    location <- getUserDataDir "html-rss-proxy"
-    removeDirectoryRecursive (location </> "Archive")
-
 main :: IO ()
 main = do
     location <- getUserDataDir "html-rss-proxy"
     createDirectoryIfMissing True location
 
-    bracket (openLocalStateFrom location (Channels M.empty)) createCheckpointAndClose $ \acid -> do
-        cleanupDatabase acid
-
-        forM_ channelList $ \(_, name, _) -> do
-            channel <- query' acid (GetChannel name)
-            case channel of
-                Just c -> updateChannel' location name Nothing c
-                _      -> return ()
-
-        errorChannels <- newMVar M.empty
-        void $ async (updateChannels location errorChannels)
-        scotty port $
-            forM_ channelList $ \(path, name, _) ->
-                get (literal path) (getRss location errorChannels name)
+    errorChannels <- newMVar M.empty
+    void $ async (updateChannels location errorChannels)
+    scotty port $
+        forM_ channelList $ \(path, name, _) ->
+            get (literal path) (getRss location errorChannels name)
 
 getRss :: FilePath -> MVar ErrorChannels -> T.Text -> ActionM ()
 getRss path errorChannels name = do
@@ -77,7 +57,7 @@ getRss path errorChannels name = do
     case M.lookup name currentErrorChannels of
       Just (Left err) -> raise ("Error in channel " <> TL.fromStrict name <> TL.fromStrict err)
       _               -> do
-          channel <- liftIO $ getChannel' path name
+          channel <- liftIO $ getChannelFromDb path name
           case channel of
             Nothing -> raise ("Empty channel " <> TL.fromStrict name)
             Just c  -> raw (renderChannelToRSS c)
@@ -114,7 +94,7 @@ updateChannels path errorChannels = getCurrentMonotonicTime >>= go
                     (hours, seconds') = divMod seconds (60*60)
                     (minutes, seconds'') = divMod seconds' 60
                     date = Date (fromInteger year) month day hours minutes seconds''
-                updateChannel' path name (Just date) channel
+                updateChannelInDb path name date channel
 
                 return (M.delete name currentErrorChannels)
 

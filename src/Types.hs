@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveAnyClass, DeriveGeneric, DeriveDataTypeable, TypeFamilies, TemplateHaskell #-}
+{-# LANGUAGE DeriveAnyClass, DeriveGeneric #-}
 
 module Types
     ( Article(..)
@@ -10,10 +10,6 @@ where
 import Data.Text (Text)
 
 import GHC.Generics (Generic)
-import Data.Data (Data)
-import Control.DeepSeq (NFData)
-import Data.Typeable
-import Data.SafeCopy
 import Data.Serialize
 import Data.Serialize.Text
 
@@ -24,26 +20,20 @@ data Date = Date
     , dateHour :: Int
     , dateMinute :: Int
     , dateSecond :: Int
-    } deriving (Show, Eq, Typeable, Data, Generic, Serialize, NFData)
-
-$(deriveSafeCopy 0 'base ''Date)
+    } deriving (Show, Eq, Generic, Serialize)
 
 data Article = Article
     { articleTitle :: Text
     , articleLink :: Text
     , articleDescription :: Text
     , articleDate :: Maybe Date
-    } deriving (Show, Eq, Typeable, Data, Generic, Serialize, NFData)
-
-$(deriveSafeCopy 0 'base ''Article)
+    } deriving (Show, Eq, Generic, Serialize)
 
 data Channel = Channel
     { channelTitle :: Text
     , channelLink :: Text
     , channelDescription :: Text
     , channelArticles :: [Article]
-    } deriving (Show, Eq, Typeable, Data, Generic, Serialize, NFData)
-
-$(deriveSafeCopy 0 'base ''Channel)
+    } deriving (Show, Eq, Generic, Serialize)
 
 
