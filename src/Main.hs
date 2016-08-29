@@ -4,6 +4,7 @@ import Types
 import Rss
 import Db
 import Config
+import Utils
 
 import Data.Monoid
 
@@ -101,6 +102,7 @@ updateChannels path errorChannels = getCurrentMonotonicTime >>= go
     handlers name = [ Handler (\(e :: IOException) -> storeException name (T.pack (show e)))
                     , Handler (\(e :: HttpException) -> storeException name (T.pack (show e)))
                     , Handler (\(e :: XmlException) -> storeException name (T.pack (show e)))
+                    , Handler (\(e :: ParsingException) -> storeException name (T.pack (show e)))
                     , Handler (\(e :: SomeException) -> putStrLn ("Exception while updating " ++ T.unpack name ++ ": " ++ show e) >> exitFailure)
                     ]
 

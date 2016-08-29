@@ -12,17 +12,19 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Catch
 
+import Data.String
 import Data.Monoid
 import Data.Text (Text)
 import qualified Data.Text as T
 
-import Data.Conduit
-import qualified Data.Conduit.List as CL
-import Network.HTTP.Simple (httpSink)
-import Network.HTTP.Conduit (parseUrl)
-import qualified Data.XML.Types as XT
-import qualified Text.XML.Stream.Parse as XP
-import qualified Text.HTML.DOM as HTML
+import Data.List.Split
+
+import qualified Data.ByteString.Lazy as BL
+
+import Control.Lens
+import Text.Xml.Lens
+
+import qualified Network.HTTP.Simple as HTTP
 
 data ToVimaArticle = ToVimaArticle
     { articleTitle :: Text
@@ -41,34 +43,34 @@ urlMain = "http://www.tovima.gr/en"
 url :: Int -> String
 url page = "http://www.tovima.gr/ajax.aspx?m=Dol.ToVima.ExtenderModule.ModuleUserControl&controlname=/User_Controls/International/ArticleListInternational.ascx&data=page%3D" ++ show page ++ "%26lang%3D1"
 
-getChannel :: (MonadIO m) => m Channel
+getChannel :: (MonadIO m, MonadThrow m) => m Channel
 getChannel = do
-    articles <- fmap (fmap toArticle) $ do
-        req <- liftIO $ parseUrl urlMain
-        liftIO $ httpSink req $ \_ ->
-            HTML.eventConduit =$= parseHtml
-    articlesNext <- forM [0, 1] $ \n -> do
-            req <- liftIO $ parseUrl (url n)
-            liftIO $ httpSink req $ \_ ->
-                HTML.eventConduit =$= parseContainers =$= CL.map toArticle =$= CL.consume
+    resp <- HTTP.httpLBS (fromString urlMain)
 
-    pure Channel { channelTitle = "Το Βήμα Online"
-                 , channelLink = "http://www.tovima.gr/en"
-                 , channelDescription = "Latest news from Greece in English"
-                 , channelArticles = deduplicateArticles . mconcat $ (articles : articlesNext)
-                 }
+    let body = HTTP.getResponseBody resp
+    let articlesMain = fmap (fmap toArticle) $ parseHtml body
 
--- FIXME: The date without a proper time is not useful
+    articlesNext <- fmap sequenceA $ forM [0, 1] $ \n -> do
+        resp <- HTTP.httpLBS (fromString (url n))
+        let body = HTTP.getResponseBody resp
+        return $ fmap (fmap toArticle) $ parseContainers body
+
+    let articles = (:) <$> articlesMain <*> articlesNext
+
+    case articles of
+      Nothing       -> throwM ParsingException
+      Just articles -> pure Channel { channelTitle = "Το Βήμα Online"
+                                    , channelLink = "http://www.tovima.gr/en"
+                                    , channelDescription = "Latest news from Greece in English"
+                                    , channelArticles = mconcat articles
+                                    }
+
 toArticle :: ToVimaArticle -> Article
-toArticle (ToVimaArticle title date smallTitle extraText img link) = Article title link description Nothing --(Just rfc822Date)
+toArticle (ToVimaArticle title date smallTitle extraText img link) = Article title (T.pack urlBase <> link) description Nothing
     where
         imgTag = case img of
                    Nothing  -> T.empty
                    Just src -> "<img src=\"" <> src <> "\"/>"
-        --[_, dayMonth, year] = fmap T.strip (T.splitOn "," date)
-        --[month, day] = fmap T.strip (T.splitOn " " dayMonth)
-        --rfc822Date = day <> " " <> month <> " " <> year <>
-        --                " 00:00:01"
 
         description = imgTag <> date <> "<br/>" <>
                             if T.null smallTitle
@@ -77,68 +79,62 @@ toArticle (ToVimaArticle title date smallTitle extraText img link) = Article tit
                                      "<br/><br/>" <>
                                      extraText)
 
--- FIXME: How to make this a Conduit XT.Event m ToVimaArticle instead, i.e.
--- produce the articles lazily?
-parseHtml :: (MonadThrow m) => ConduitM XT.Event o m [ToVimaArticle]
-parseHtml = XP.force "html" $
-    XP.tagName "html" XP.ignoreAttrs $ \_ -> do
-        void (XP.many (XP.ignoreTree (/= "body")))
-        articles <- XP.force "body" $ XP.tagName "body" XP.ignoreAttrs $ \_ ->
-            mconcat <$> XP.many' parseDivPagewrap
-        void (XP.many XP.ignoreAllTreesContent)
-        pure articles
+parseHtml :: BL.ByteString -> Maybe [ToVimaArticle]
+parseHtml body = case articles of
+                   Nothing -> Nothing
+                   Just [] -> Nothing
+                   Just xs -> Just xs
+    where
+        -- Extract the list of divs that contain what we're interested in
+        extractedArticleDivs =
+            body ^.. html ...
+                    named (only "body") ...
+                        named (only "div") . withAttribute "id" "pagewrap" ...
+                            named (only "div") . withAttribute "id" "content" ...
+                                filtered (has (named (only "div") . withAttribute "class" "container"))
 
-parseDivPagewrap :: (MonadThrow m) => ConduitM XT.Event o m (Maybe [ToVimaArticle])
-parseDivPagewrap = tagNameWithAttrValue "div" "id" "pagewrap" $
-    mconcat <$> XP.many' parseDivContent
+        -- Convert the groups of divs to our data structure
+        articles = sequenceA $ fmap divToArticle  extractedArticleDivs
 
-parseDivContent :: (MonadThrow m) => ConduitM XT.Event o m (Maybe [ToVimaArticle])
-parseDivContent = tagNameWithAttrValue "div" "id" "content" $
-    XP.many' parseContainer
+parseContainers :: BL.ByteString -> Maybe [ToVimaArticle]
+parseContainers body = case articles of
+                   Nothing -> Nothing
+                   Just [] -> Nothing
+                   Just xs -> Just xs
+    where
+        -- Extract the list of divs that contain what we're interested in
+        extractedArticleDivs =
+            body ^.. html ...
+                filtered (has (named (only "div") . withAttribute "class" "container"))
 
-parseContainers :: (MonadThrow m) => Conduit XT.Event m ToVimaArticle
-parseContainers = XP.manyYield parseContainer
+        -- Convert the groups of divs to our data structure
+        articles = sequenceA $ fmap divToArticle  extractedArticleDivs
 
-parseContainer :: (MonadThrow m) => ConduitM XT.Event o m (Maybe ToVimaArticle)
-parseContainer =
-    tagNameWithAttrValue "div" "class" "container" $ do
-        (href, img) <- parseLinkImage
-        (title, smallTitle, date) <- parseDivText
-        void (XP.ignoreTagName "div")
-        extraText <- parseExtraText
-        pure (ToVimaArticle title date smallTitle extraText img href)
+divToArticle :: Element -> Maybe ToVimaArticle
+divToArticle divArticle = ToVimaArticle <$> bigTitle <*> date <*> smallTitle <*> extraText <*> img <*> link
+    where
+        linkA = divArticle ^? plate .
+            named (only "a")
 
-parseLinkImage :: (MonadThrow m) => ConduitM XT.Event o m (Text, Maybe Text)
-parseLinkImage = XP.force "link image" $
-    XP.tagName "a" (XP.requireAttr "href" <* XP.ignoreAttrs) $ \href -> do
-        img <- tagNameWithAttrValue "div" "class" "foto" $
-            XP.force "img" $ XP.tagName "img" (XP.requireAttr "src" <* XP.ignoreAttrs) pure
-        pure (T.pack urlBase <> href, img)
+        link = linkA ^? traverse . attr "href" . _Just
+        img = linkA ^. traverse . ix 0 .
+            named (only "div") . withAttribute "class" "foto" ...
+                named (only "img") . attr "src" & Just
 
-parseDivText :: (MonadThrow m) => ConduitM XT.Event o m (Text, Text, Text)
-parseDivText = XP.force "div text" $
-    tagNameWithAttrValue "div" "class" "text" $ do
-        void (XP.ignoreTagName "span")
-        title <- parseBigTitle
-        smallTitle <- parseSmallTitle
-        date <- parseDate
-        pure (T.strip title, T.strip smallTitle, T.strip date)
+        divText = divArticle ^? plate .
+            named (only "div") . withAttribute "class" "text"
 
-parseBigTitle :: (MonadThrow m) => ConduitM XT.Event o m Text
-parseBigTitle = XP.force "h3" $
-    XP.tagName "h3" XP.ignoreAttrs $ \_ ->
-        XP.force "span big_title" $ tagNameWithAttrValue "span" "class" "big_title" $
-            XP.force "a big title" $ XP.tagName "a" XP.ignoreAttrs $ const XP.content
+        bigTitle = divText ^? traverse ...
+            named (only "h3") ...
+                named (only "span") . withAttribute "class" "big_title" ...
+                    named (only "a") . text & fmap T.strip
 
-parseSmallTitle :: (MonadThrow m) => ConduitM XT.Event o m Text
-parseSmallTitle = XP.force "span small_title" $
-    tagNameWithAttrValue "span" "class" "small_title" XP.content
+        smallTitle = divText ^? traverse ...
+            named (only "span") . withAttribute "class" "small_title" . text & fmap T.strip
 
-parseDate :: (MonadThrow m) => ConduitM XT.Event o m Text
-parseDate = XP.force "span date" $
-    tagNameWithAttrValue "span" "class" "date" XP.content
+        date = divText ^? traverse ...
+            named (only "span") . withAttribute "class" "date" . text & fmap T.strip
 
-parseExtraText :: (MonadThrow m) => ConduitM XT.Event o m Text
-parseExtraText = XP.force "span extra_text" $
-    tagNameWithAttrValue "span" "class" "extra_text" (T.strip <$> XP.content)
+        extraText = divArticle ^? plate .
+            named (only "span") . withAttribute "class" "extra_text" . text & fmap T.strip
 

@@ -38,12 +38,12 @@ executable html-rss-proxy
                      , containers
                      , transformers
                      , scotty
-                     , conduit
                      , http-conduit
-                     , xml-types
                      , xml-conduit
                      , xml-conduit-writer
-                     , html-conduit
+                     , xml-html-conduit-lens
+                     , split
+                     , lens
                      , cereal
                      , cereal-text
                      , filelock

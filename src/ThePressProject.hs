@@ -12,16 +12,19 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Catch
 
+import Data.String
 import Data.Monoid
 import Data.Text (Text)
 import qualified Data.Text as T
 
-import Data.Conduit
-import Network.HTTP.Simple (httpSink)
-import Network.HTTP.Conduit (parseUrl)
-import qualified Data.XML.Types as XT
-import qualified Text.XML.Stream.Parse as XP
-import qualified Text.HTML.DOM as HTML
+import Data.List.Split
+
+import qualified Data.ByteString.Lazy as BL
+
+import Control.Lens
+import Text.Xml.Lens
+
+import qualified Network.HTTP.Simple as HTTP
 
 data ThePressProjectArticle = ThePressProjectArticle
     { articleTitle :: Text
@@ -36,106 +39,76 @@ urlBase, url :: String
 urlBase = "http://www.thepressproject.gr"
 url = "http://www.thepressproject.gr/list_en.php"
 
-getChannel :: (MonadIO m) => m Channel
+getChannel :: (MonadIO m, MonadThrow m) => m Channel
 getChannel = do
-    articles <- fmap (fmap toArticle) $ do
-        req <- liftIO $ parseUrl url
-        liftIO $ httpSink req $ \_ ->
-            HTML.eventConduit =$= parseHtml
+    resp <- HTTP.httpLBS (fromString url)
+    let body = HTTP.getResponseBody resp
+        articles = fmap (fmap toArticle) (parseHtml body)
 
-    pure Channel { channelTitle = "ThePressProject"
-                 , channelLink = "http://www.thepressproject.gr"
-                 , channelDescription = "ThePressProject"
-                 , channelArticles = articles
-                 }
+    case articles of
+      Nothing       -> throwM ParsingException
+      Just articles -> pure Channel { channelTitle = "ThePressProject"
+                                    , channelLink = "http://www.thepressproject.gr"
+                                    , channelDescription = "ThePressProject"
+                                    , channelArticles = articles
+                                    }
+
 
 -- FIXME: The date without a proper time is not useful
 toArticle :: ThePressProjectArticle -> Article
-toArticle (ThePressProjectArticle title date text link img) = Article title link description Nothing
+toArticle (ThePressProjectArticle title date summary link img) = Article title (T.pack urlBase <> "/" <> link) description Nothing
     where
-        description = "<img src=\"" <> img <> "\"/>" <> date <> "<br/><br/>" <> text
+        description = "<img src=\"" <> T.pack urlBase <> T.drop 2 img <> "\"/>" <> date <> "<br/><br/>" <> summary
 
--- FIXME: How to make this a Conduit XT.Event m ThePressProjectArticle instead, i.e.
--- produce the articles lazily?
-parseHtml :: (MonadThrow m) => ConduitM XT.Event o m [ThePressProjectArticle]
-parseHtml = XP.force "html" $
-    XP.tagName "html" XP.ignoreAttrs $ \_ -> do
-        void (XP.many (XP.ignoreTree (/= "body")))
-        articles <- XP.force "body" $ XP.tagName "body" XP.ignoreAttrs $ \_ ->
-            mconcat <$> XP.many' parseDivFull
-        void (XP.many XP.ignoreAllTreesContent)
-        pure articles
 
-parseDivFull :: (MonadThrow m) => ConduitM XT.Event o m (Maybe [ThePressProjectArticle])
-parseDivFull = tagNameWithAttrValue "div" "class" "full" $
-    mconcat <$> XP.many' parseDivMainLeft
+parseHtml :: BL.ByteString -> Maybe [ThePressProjectArticle]
+parseHtml body = case articles of
+                   Nothing -> Nothing
+                   Just [] -> Nothing
+                   Just xs -> Just xs
+    where
+        -- Extract the list of divs that contain what we're interested in
+        extractedArticleDivs =
+            body ^.. html ...
+                    named (only "body") ...
+                        named (only "div") . withAttribute "class" "full" ...
+                            named (only "div") . withAttribute "class" "mainleft" ...
+                                named (only "div") . withAttribute "class" "c70" ...
+                                    named (only "div") ...
+                                        named (only "div") . withAttribute "class" "semiright" ...
+                                            named (only "div") . withAttribute "class" "list" ...
+                                                filtered (\e -> has (named (only "div")) e && hasn't (withAttribute "style" "clear:both;") e)
 
-parseDivMainLeft :: (MonadThrow m) => ConduitM XT.Event o m (Maybe [ThePressProjectArticle])
-parseDivMainLeft = tagNameWithAttrValue "div" "class" "mainleft" $
-    mconcat <$> XP.many' parseDivC70
+        -- Convert the groups of divs to our data structure
+        articles = sequenceA $ fmap divToArticle extractedArticleDivs
 
-parseDivC70 :: (MonadThrow m) => ConduitM XT.Event o m (Maybe [ThePressProjectArticle])
-parseDivC70 = tagNameWithAttrValue "div" "class" "c70" $
-    XP.force "div inner c70" $ XP.tagName "div" XP.ignoreAttrs $ \_ ->
-        mconcat <$> XP.many' parseDivSemiRight
+divToArticle :: Element -> Maybe ThePressProjectArticle
+divToArticle divArticle = ThePressProjectArticle <$> title <*> date <*> summary <*> link <*> img
+    where
+        leftDiv = divArticle ^? plate .
+            named (only "div") . withAttribute "style" "float:left; width:25%;"
 
-parseDivSemiRight :: (MonadThrow m) => ConduitM XT.Event o m (Maybe [ThePressProjectArticle])
-parseDivSemiRight = tagNameWithAttrValue "div" "class" "semiright" $
-    mconcat <$> XP.many' parseDivList
+        imgA = leftDiv ^? traverse . ix 0 .
+            named (only "div") ...
+                named (only "a") . filtered (has (node "img"))
 
-parseDivList :: (MonadThrow m) => ConduitM XT.Event o m (Maybe [ThePressProjectArticle])
-parseDivList = tagNameWithAttrValue "div" "class" "list" $
-    XP.many parseItem
+        link = imgA ^? traverse . attr "href" . _Just
+        img = imgA ^? traverse . ix 0 .
+            named (only "img") . attr "src" . _Just
 
-parseItem :: (MonadThrow m) => ConduitM XT.Event o m (Maybe ThePressProjectArticle)
-parseItem = do
-    article <- XP.tagName "div" XP.ignoreAttrs $ \_ -> do
-        (date, img, link) <- parseDateImgLink
-        (title, text) <- parseText
+        date = leftDiv ^? traverse . ix 1 .
+            named (only "div") ...
+                named (only "div") . withAttribute "class" "open" ...
+                    named (only "table") ...
+                        named (only "tr") ...
+                            named (only "td") . text
 
-        pure (ThePressProjectArticle title date text link img)
+        rightDiv = divArticle ^? plate .
+            named (only "div") . withAttribute "style" "float:left; width:70%;"
 
-    case article of
-      Nothing -> pure Nothing
-      Just _  -> do
-          XP.force "div clear" $ XP.tagName "div" XP.ignoreAttrs $ \_ ->
-              void (XP.many XP.ignoreAllTreesContent)
-          pure article
+        title = rightDiv ^? traverse . ix 0 ...
+            named (only "a") . text
 
-parseDateImgLink :: (MonadThrow m) => ConduitM XT.Event o m (Text, Text, Text)
-parseDateImgLink = XP.force "div date" $ XP.tagName "div" XP.ignoreAttrs $ \_ -> do
-    (link, img) <- XP.force "div line" $ XP.tagName "div" XP.ignoreAttrs $ \_ ->
-        XP.force "a" $ XP.tagName "a" (XP.requireAttr "href" <* XP.ignoreAttrs) $ \href -> do
-            img <- XP.force "img" $ XP.tagName "img" (XP.requireAttr "src" <* XP.ignoreAttrs) pure
-            pure (T.pack urlBase <> "/" <> href, T.pack urlBase <> T.drop 2 img)
-
-    date <- XP.force "div" $ XP.tagName "div" XP.ignoreAttrs $ \_ ->
-        XP.force "div open" $ tagNameWithAttrValue "div" "class" "open" $
-            XP.force "table" $ XP.tagName "table" XP.ignoreAttrs $ \_ ->
-                XP.force "tr" $ XP.tagName "tr" XP.ignoreAttrs $ \_ ->
-                    XP.force "td" $ XP.tagName "td" XP.ignoreAttrs $ const XP.content
-
-    pure (date, img, link)
-
-parseText :: (MonadThrow m) => ConduitM XT.Event o m (Text, Text)
-parseText = XP.force "div text" $ XP.tagName "div" XP.ignoreAttrs $ \_ -> do
-    title <- XP.force "div title link" $ XP.tagName "div" XP.ignoreAttrs $ \_ ->
-        XP.force "a title" $ XP.tagName "a" (XP.requireAttr "href" <* XP.ignoreAttrs) $ const XP.content
-
-    XP.force "style" $ XP.tagName "style" XP.ignoreAttrs $ \_ ->
-        void (XP.many XP.ignoreAllTreesContent)
-
-    XP.force "div gap" $ XP.tagName "div" XP.ignoreAttrs $ \_ ->
-        void (XP.many XP.ignoreAllTreesContent)
-
-    text <- XP.force "div text" $ XP.tagName "div" XP.ignoreAttrs $ \_ ->
-        XP.force "a text" $ XP.tagName "a" XP.ignoreAttrs $ \_ -> do
-            void $ tagNameWithAttrValue "div" "class" "ticker" $
-                void XP.ignoreAllTreesContent
-            XP.content
-
-    XP.force "div open" $ tagNameWithAttrValue "div" "class" "open" $
-        void (XP.many XP.ignoreAllTreesContent)
-
-    pure (title, text)
+        summary = rightDiv ^? traverse . ix 3 ...
+            named (only "a") . text
 

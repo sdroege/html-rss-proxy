@@ -1,12 +1,13 @@
 {-# LANGUAGE RankNTypes, OverloadedStrings #-}
 
 module Utils
-    ( tagNameWithAttrValue
-    , deduplicateArticles
+    ( deduplicateArticles
     , pruneOldChannelArticles
     , mergeChannelArticles
     , setChannelArticleDate
     , dateToText
+    , withAttribute
+    , ParsingException(..)
     )
 where
 
@@ -20,20 +21,20 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.List (nubBy)
 import Data.Maybe (fromMaybe)
+import Data.Typeable
 
-import Data.Conduit
 import Data.Function (on)
 
-import qualified Data.XML.Types as XT
-import qualified Text.XML.Stream.Parse as XP
+import qualified Control.Lens as L
+import qualified Text.Xml.Lens as XL
 
--- Helper function like tagName that also requires a specific attribute with a specific value
-tagNameWithAttrValue :: (MonadThrow m) => XT.Name -> XT.Name -> Text -> ConduitM XT.Event o m a -> ConduitM XT.Event o m (Maybe a)
-tagNameWithAttrValue n a v p = fmap join $
-    XP.tagName n (XP.attr a <* XP.ignoreAttrs) $ \i ->
-        case i of
-          Just v' | v == v' -> Just <$> p
-          _                 -> XP.many XP.ignoreAllTreesContent *> pure Nothing
+withAttribute :: Applicative f => XL.Name -> Text -> (XL.Element -> f XL.Element) -> XL.Element -> f XL.Element
+withAttribute k v = XL.attributed (L.ix k . L.only v)
+
+data ParsingException = ParsingException
+    deriving (Typeable, Show)
+
+instance Exception ParsingException
 
 deduplicateArticles :: [Article] -> [Article]
 deduplicateArticles = nubBy ((==) `on` articleLink)
