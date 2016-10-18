@@ -11,7 +11,6 @@ where
 
 import Types
 import qualified ToVima
-import qualified MakThes
 import qualified ThePressProject
 
 import qualified Data.Text as T
@@ -31,7 +30,6 @@ maxChannelSize = 200
 channelList :: [(String, T.Text, IO Channel)]
 channelList =
     [ ("/to-vima", "ToVima", ToVima.getChannel)
-    , ("/makthes", "MakThes", MakThes.getChannel)
     , ("/the-press-project", "ThePressProject", ThePressProject.getChannel)
     ]
 
